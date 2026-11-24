@@ -1,5 +1,5 @@
 use evdev::{Device, EventSummary, RelativeAxisCode};
-use minifb::{Key, Window, WindowOptions};
+use minifb::{Key, MouseMode, Window, WindowOptions};
 use std::{
     thread,
     time::{Duration, Instant},
@@ -38,10 +38,11 @@ fn main() {
     // Current pen position in world (raw-event) coordinates.
     let (mut x, mut y) = (w as i32 / 2, h as i32 / 2);
 
-    // The camera is fixed at the start position; zoom is centered on it.
-    let cam_x = w as f64 / 2.0;
-    let cam_y = h as f64 / 2.0;
+    // View transform: screen = world * zoom + offset.
+    // Start with world center mapped to screen center at zoom 1.0.
     let mut zoom = 1.0f64;
+    let mut off_x = w as f64 / 2.0 - (w as f64 / 2.0) * zoom;
+    let mut off_y = h as f64 / 2.0 - (h as f64 / 2.0) * zoom;
 
     // The drawn line, stored in world coordinates so it can be
     // re-rendered at any zoom level.
@@ -52,6 +53,10 @@ fn main() {
     let mut rate = 0.0;
 
     while window.is_open() && !window.is_key_down(Key::Escape) {
+        // Accumulate this frame's zoom factor so it can be applied once,
+        // anchored at the cursor.
+        let mut zoom_factor = 1.0f64;
+
         match device.fetch_events() {
             Ok(events) => {
                 for event in events {
@@ -71,7 +76,7 @@ fn main() {
                         }
                         // Mouse wheel zooms the view.
                         EventSummary::RelativeAxis(_, RelativeAxisCode::REL_WHEEL, value) => {
-                            zoom *= ZOOM_STEP.powi(value);
+                            zoom_factor *= ZOOM_STEP.powi(value);
                         }
                         _ => continue,
                     }
@@ -85,19 +90,34 @@ fn main() {
 
         // Keyboard zoom controls as an alternative to the wheel.
         if window.is_key_down(Key::Equal) || window.is_key_down(Key::NumPadPlus) {
-            zoom *= ZOOM_STEP;
+            zoom_factor *= ZOOM_STEP;
         }
         if window.is_key_down(Key::Minus) || window.is_key_down(Key::NumPadMinus) {
-            zoom /= ZOOM_STEP;
+            zoom_factor /= ZOOM_STEP;
         }
-        zoom = zoom.clamp(MIN_ZOOM, MAX_ZOOM);
+
+        // Apply zoom anchored at the cursor: keep the world point under the
+        // cursor fixed on screen while scaling. Fall back to screen center
+        // if the cursor position is unavailable.
+        if zoom_factor != 1.0 {
+            let new_zoom = (zoom * zoom_factor).clamp(MIN_ZOOM, MAX_ZOOM);
+            let effective = new_zoom / zoom;
+            let (ax, ay) = window
+                .get_mouse_pos(MouseMode::Clamp)
+                .map(|(mx, my)| (mx as f64, my as f64))
+                .unwrap_or((w as f64 / 2.0, h as f64 / 2.0));
+
+            off_x = ax - (ax - off_x) * effective;
+            off_y = ay - (ay - off_y) * effective;
+            zoom = new_zoom;
+        }
 
         // Re-render the whole trail at the current zoom.
         buffer.iter_mut().for_each(|p| *p = 0xFFFFFF);
         let block = zoom.ceil() as i32;
         for &(wx, wy) in &points {
-            let sx = ((wx as f64 - cam_x) * zoom + w as f64 / 2.0).floor() as i32;
-            let sy = ((wy as f64 - cam_y) * zoom + h as f64 / 2.0).floor() as i32;
+            let sx = (wx as f64 * zoom + off_x).floor() as i32;
+            let sy = (wy as f64 * zoom + off_y).floor() as i32;
             draw_block(&mut buffer, w, h, sx, sy, block);
         }
 
