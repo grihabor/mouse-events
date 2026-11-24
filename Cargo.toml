@@ -6,3 +6,4 @@ edition = "2024"
 [dependencies]
 evdev = "0.13.2"
 minifb = "0.29.0"
+x11-dl = "2.21.0"

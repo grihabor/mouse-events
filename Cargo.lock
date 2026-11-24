@@ -322,6 +322,7 @@ version = "0.1.0"
 dependencies = [
  "evdev",
  "minifb",
+ "x11-dl",
 ]
 
 [[package]]
