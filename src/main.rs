@@ -1,4 +1,4 @@
-use evdev::{Device, EventType, InputEventKind};
+use evdev::{Device, EventSummary, RelativeAxisCode};
 use minifb::{Key, Window, WindowOptions};
 use std::{
     thread,
@@ -32,23 +32,23 @@ fn main() {
         match device.fetch_events() {
             Ok(events) => {
                 for event in events {
-                    if event.event_type() == EventType::RELATIVE {
-                        match event.kind() {
-                            InputEventKind::RelX => x += event.value(),
-                            InputEventKind::RelY => y += event.value(),
-                            _ => continue,
+                    match event.destructure() {
+                        EventSummary::RelativeAxis(_, RelativeAxisCode::REL_X, value) => {
+                            x += value;
                         }
+                        EventSummary::RelativeAxis(_, RelativeAxisCode::REL_Y, value) => {
+                            y += value;
 
-                        // Count one report when an X/Y movement arrives.
-                        // REL_X and REL_Y are separate events, so count
-                        // only REL_Y to avoid double-counting.
-                        if matches!(event.kind(), InputEventKind::RelY) {
+                            // Count one report when an X/Y movement arrives.
+                            // REL_X and REL_Y are separate events, so count
+                            // only REL_Y to avoid double-counting.
                             count += 1;
 
                             if x >= 0 && x < W as i32 && y >= 0 && y < H as i32 {
                                 buffer[y as usize * W + x as usize] = 0x000000;
                             }
                         }
+                        _ => continue,
                     }
                 }
             }
